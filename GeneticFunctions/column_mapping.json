@@ -1,0 +1,11 @@
+{
+  "rsid": ["variant_id", "snp_id", "markername", "snpname"],
+  "a1": ["effect_allele", "allele1", "alt"],
+  "a0": ["other_allele", "allele2", "ref"],
+  "beta_se": ["se", "standard_error", "beta_se", "stderr", "se_calc"],
+  "beta": ["effect", "estimateeffect","estimate_effect"],
+  "chr": ["chromosome", "chrom"],
+  "pos": ["position", "bp", "base_pair_location"],
+  "p": ["p_value", "pvalue"],
+  "n_eff": ["n", "samplesize"]
+}

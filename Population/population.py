@@ -27,19 +27,23 @@ class Population:
 
     def __init__(self, objective_function, plink_prefix, pheno_path, gwas_path, trait_column='TRAIT'):
         # genotype
+        warnings.filterwarnings("ignore", category=FutureWarning) # Suppress FutureWarnings for read_plink_bin
         self.G = read_plink1_bin(f"{plink_prefix}.bed", f"{plink_prefix}.bim", f"{plink_prefix}.fam", verbose=False)
         self.G = self.G.chunk({'sample': 500, 'variant': 10000})
         self.G = self.G.fillna(0) # Remove NAs and fill them with the reference allele 
+        
+        self.info_snp = pd.DataFrame({'chr': self.G.chrom.values, 'pos': self.G.pos.values,
+        'a0': self.G.a0.values, 'a1': self.G.a1.values, 'rsid': self.G.snp.values})
         
         # phenotype
         self.P = pd.read_csv(pheno_path, sep='\t')
         self.trait_column = trait_column
 
         # matched
-        self.matched = snp_match(gwas_path,plink_prefix,from_file=True, match_min_prop=0.0005)
+        self.matched = snp_match(gwas_path,self.info_snp, match_min_prop=0.0005)
         threshold = 0.05 / 52000000
         initial_count = self.matched.shape[0]
-        self.matched = self.matched[self.matched['p_value'] < threshold]
+        self.matched = self.matched[self.matched['p'] < threshold]
         final_count = self.matched.shape[0]
         removed_count = initial_count - final_count
         print(f"{removed_count} rows were removed due to the p_value threshold.")

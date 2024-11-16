@@ -23,20 +23,19 @@ def flip_strand(allele):
     return allele_map.get(allele, None)
 
 def snp_match(sumstats, info_snp, strand_flip=True, join_by_pos=True, remove_dups=True,
-              match_min_prop=0.2, return_flip_and_rev=False, from_file=False):
+              match_min_prop=0.2, return_flip_and_rev=False):
     """
     Matches SNPs from a summary statistics DataFrame with an info SNP DataFrame,
     handling strand flips, reversed alleles, and duplicate removal as specified.
     
     Parameters:
-    - sumstats (pd.DataFrame or str): Summary statistics containing SNP data to be matched or Path to sumstats TSV file.
-    - info_snp (pd.DataFrame or str): Information on SNPs to match against or plink prefix.
+    - sumstats (str): Path to summary statistics GWAS TSV file.
+    - info_snp (pd.DataFrame): Information on SNPs to match against.
     - strand_flip (bool): Whether to allow strand flipping to match SNPs.
     - join_by_pos (bool): Whether to join by position (True) or by 'rsid' (False).
     - remove_dups (bool): Whether to remove duplicate matches.
     - match_min_prop (float): Minimum proportion of matches required.
     - return_flip_and_rev (bool): Whether to return columns indicating strand flips and reversals.
-    - from_file (bool): Whether sumstats and info_snp are file paths (default=False).
     
     Returns:
     - pd.DataFrame: DataFrame with matched SNPs, sorted by chromosome and position.
@@ -46,12 +45,9 @@ def snp_match(sumstats, info_snp, strand_flip=True, join_by_pos=True, remove_dup
                   or If required columns are missing, or if matching SNPs does not meet the minimum proportion.
     """
     n_jobs = os.cpu_count() - 1
-    print("Using {n_jobs} CPUs")
-    if from_file:
-        if not isinstance(sumstats, str) or not isinstance(info_snp, str):
-            raise ValueError("When 'from_file' is True, 'sumstats' and 'info_snp' must be file paths (strings).")
-        
-        sumstats, info_snp = load_data_for_snp_match(sumstats, info_snp)
+    print(f"Using {n_jobs} CPUs")
+    
+    sumstats = load_data_for_snp_match(sumstats)
 
     info_snp = filter_standard_chromosomes(info_snp).copy()
     sumstats = filter_standard_chromosomes(sumstats).copy()
