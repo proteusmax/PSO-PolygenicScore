@@ -218,7 +218,7 @@ class Population:
         self.prepare_data()
         print("Data prepared successfully")
         self.train_test_split()
-        print(f"Data splited into: {self.train} individuals for training, {self.test} individuals for testing")
+        print(f"Data splited into: {len(self.train)} individuals for training, {len(self.test)} individuals for testing")
         print("Optimizing weights...")
         self.optimize_weights()
         print("Weights optimized successfully")

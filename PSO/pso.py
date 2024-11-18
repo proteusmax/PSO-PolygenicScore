@@ -51,63 +51,63 @@ class PSO:
         """
         return self.generation_statistics
 
-def run(self):  #  uses all available processors
-    n_jobs = os.cpu_count() - 1
-    while self.generation_t < self.max_generations:
-        print(f'Generation: {self.generation_t}/{self.max_generations}', end='\r')
+    def run(self):  #  uses all available processors
+        n_jobs = os.cpu_count() - 1
+        while self.generation_t < self.max_generations:
+            print(f'Generation: {self.generation_t}/{self.max_generations}', end='\r')
 
-        # Step 3a: Evaluate each particle in parallel and update positions and velocities
-        def evaluate_particle(i):
-            particle = self.swarm.get_particle_at(i)
-            particle_lbest = self.lbest.get_particle_at(i)
+            # Step 3a: Evaluate each particle in parallel and update positions and velocities
+            def evaluate_particle(i):
+                particle = self.swarm.get_particle_at(i)
+                particle_lbest = self.lbest.get_particle_at(i)
 
-            if particle.get_objective_value() is None:
-                print(f"Warning: Particle {i} has None objective value!")
-            if particle_lbest.get_objective_value() is None:
-                print(f"Warning: Particle {i} lbest has None objective value!")
+                if particle.get_objective_value() is None:
+                    print(f"Warning: Particle {i} has None objective value!")
+                if particle_lbest.get_objective_value() is None:
+                    print(f"Warning: Particle {i} lbest has None objective value!")
 
-            # Set the personal best position
-            if particle.get_objective_value() < particle_lbest.get_objective_value():
-                particle_lbest.set_x(particle.get_x())
-                particle_lbest.set_objective_value(particle.get_objective_value())
-                
-            # Update the gBest position
-            if particle_lbest.get_objective_value() < self.gbest.get_objective_value():
-                self.gbest.set_x(particle_lbest.get_x())
-                self.gbest.set_objective_value(particle_lbest.get_objective_value())
-                
-            return particle, particle_lbest
+                # Set the personal best position
+                if particle.get_objective_value() < particle_lbest.get_objective_value():
+                    particle_lbest.set_x(particle.get_x())
+                    particle_lbest.set_objective_value(particle.get_objective_value())
 
-        # Run the evaluation of particles in parallel
-        results = Parallel(n_jobs=n_jobs)(delayed(evaluate_particle)(i) for i in range(self.swarm.get_swarm_size()))
+                # Update the gBest position
+                if particle_lbest.get_objective_value() < self.gbest.get_objective_value():
+                    self.gbest.set_x(particle_lbest.get_x())
+                    self.gbest.set_objective_value(particle_lbest.get_objective_value())
 
-        # Update the swarm and lbest after parallel processing
-        for i, (particle, particle_lbest) in enumerate(results):
-            self.swarm.add_particle_at(i, particle)
-            self.lbest.add_particle_at(i, particle_lbest)
+                return particle, particle_lbest
 
-        # Step 3b: Update particle velocities and positions after evaluating fitness
-        r1 = np.random.rand(self.objective_function.get_nvar())
-        r2 = np.random.rand(self.objective_function.get_nvar())
+            # Run the evaluation of particles in parallel
+            results = Parallel(n_jobs=n_jobs)(delayed(evaluate_particle)(i) for i in range(self.swarm.get_swarm_size()))
 
-        for i in range(self.swarm.get_swarm_size()):
-            particle = self.swarm.get_particle_at(i)
-            lbest = self.lbest.get_particle_at(i)
+            # Update the swarm and lbest after parallel processing
+            for i, (particle, particle_lbest) in enumerate(results):
+                self.swarm.add_particle_at(i, particle)
+                self.lbest.add_particle_at(i, particle_lbest)
 
-            particle_x = particle.get_x()
-            lbest_x = lbest.get_x()
-            gbest_x = self.gbest.get_x()
-            particle_velocity = particle.get_velocity()
+            # Step 3b: Update particle velocities and positions after evaluating fitness
+            r1 = np.random.rand(self.objective_function.get_nvar())
+            r2 = np.random.rand(self.objective_function.get_nvar())
 
-            cognitive_comp = np.nan_to_num(self.c1 * r1 * (lbest_x - particle_x), nan=0.0)
-            social_comp = np.nan_to_num(self.c2 * r2 * (gbest_x - particle_x), nan=0.0)
-            new_velocity = self.w * particle_velocity + cognitive_comp + social_comp
+            for i in range(self.swarm.get_swarm_size()):
+                particle = self.swarm.get_particle_at(i)
+                lbest = self.lbest.get_particle_at(i)
 
-            new_velocity = np.clip(new_velocity, -self.Vmax, self.Vmax)
-            new_position = np.nan_to_num(particle_x + new_velocity, nan=0.0)
+                particle_x = particle.get_x()
+                lbest_x = lbest.get_x()
+                gbest_x = self.gbest.get_x()
+                particle_velocity = particle.get_velocity()
 
-            particle.set_velocity(new_velocity)
-            particle.set_x(new_position)
-            particle.evaluate_objective_function()
+                cognitive_comp = np.nan_to_num(self.c1 * r1 * (lbest_x - particle_x), nan=0.0)
+                social_comp = np.nan_to_num(self.c2 * r2 * (gbest_x - particle_x), nan=0.0)
+                new_velocity = self.w * particle_velocity + cognitive_comp + social_comp
 
-        self.pass_next_generation()
+                new_velocity = np.clip(new_velocity, -self.Vmax, self.Vmax)
+                new_position = np.nan_to_num(particle_x + new_velocity, nan=0.0)
+
+                particle.set_velocity(new_velocity)
+                particle.set_x(new_position)
+                particle.evaluate_objective_function()
+
+            self.pass_next_generation()
