@@ -55,8 +55,8 @@ class Particle:
         self.objective_value = objective_value
     
     def evaluate_objective_function(self):
-        x_computed = self.x.compute()
-        loss = self.population.evaluate_fitness(beta_vector=x_computed, index=self.population.train)
+        #x_computed = self.x.compute()
+        loss = self.population.evaluate_fitness(beta_vector=self.x, index=self.population.train)
         self.set_objective_value(loss)
         return self.objective_value
     

@@ -1,6 +1,6 @@
 import numpy as np
 import os
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, parallel_backend
 from .particle import *
 
 class Swarm:
@@ -27,7 +27,8 @@ class Swarm:
             return particle
 
         # Create lbest particles in parallel and add them to the lbest swarm
-        particles = Parallel(n_jobs=n_jobs)(delayed(create_and_initialize_lbest_particle)() for _ in range(self.swarm_size))
+        with parallel_backend("threading"):
+            particles = Parallel(n_jobs=n_jobs)(delayed(create_and_initialize_lbest_particle)() for _ in range(self.swarm_size))
 
         for i, particle in enumerate(particles):
             self.add_particle_at(i, particle)
@@ -40,7 +41,8 @@ class Swarm:
             return particle
 
         # Create particles in parallel and add them to the swarm
-        particles = Parallel(n_jobs=n_jobs)(delayed(create_and_initialize_particle)() for _ in range(self.swarm_size))
+        with parallel_backend("threading"):
+            particles = Parallel(n_jobs=n_jobs)(delayed(create_and_initialize_particle)() for _ in range(self.swarm_size))
 
         for i, particle in enumerate(particles):
             self.add_particle_at(i, particle)

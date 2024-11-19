@@ -2,7 +2,7 @@ import numpy as np
 from PSO import *
 import configparser
 from Problems import *
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, parallel_backend
 
 
 class PSO:
@@ -79,7 +79,8 @@ class PSO:
                 return particle, particle_lbest
 
             # Run the evaluation of particles in parallel
-            results = Parallel(n_jobs=n_jobs)(delayed(evaluate_particle)(i) for i in range(self.swarm.get_swarm_size()))
+            with parallel_backend("threading"):
+                results = Parallel(n_jobs=n_jobs)(delayed(evaluate_particle)(i) for i in range(self.swarm.get_swarm_size()))
 
             # Update the swarm and lbest after parallel processing
             for i, (particle, particle_lbest) in enumerate(results):
@@ -99,12 +100,17 @@ class PSO:
                 gbest_x = self.gbest.get_x()
                 particle_velocity = particle.get_velocity()
 
-                cognitive_comp = np.nan_to_num(self.c1 * r1 * (lbest_x - particle_x), nan=0.0)
-                social_comp = np.nan_to_num(self.c2 * r2 * (gbest_x - particle_x), nan=0.0)
+                cognitive_comp = self.c1 * r1 * (lbest_x - particle_x)
+                cognitive_comp = np.nan_to_num(cognitive_comp)
+
+                social_comp = self.c2 * r2 * (gbest_x - particle_x)
+                social_comp = np.nan_to_num(social_comp)
+
                 new_velocity = self.w * particle_velocity + cognitive_comp + social_comp
 
                 new_velocity = np.clip(new_velocity, -self.Vmax, self.Vmax)
-                new_position = np.nan_to_num(particle_x + new_velocity, nan=0.0)
+                new_position = particle_x + new_velocity
+                new_position = np.nan_to_num(new_position)
 
                 particle.set_velocity(new_velocity)
                 particle.set_x(new_position)

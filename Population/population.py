@@ -29,7 +29,6 @@ class Population:
         # genotype
         warnings.filterwarnings("ignore", category=FutureWarning) # Suppress FutureWarnings for read_plink_bin
         self.G = read_plink1_bin(f"{plink_prefix}.bed", f"{plink_prefix}.bim", f"{plink_prefix}.fam", verbose=False)
-        self.G = self.G.chunk({'sample': 500, 'variant': 10000})
         self.G = self.G.fillna(0) # Remove NAs and fill them with the reference allele 
         
         self.info_snp = pd.DataFrame({'chr': self.G.chrom.values, 'pos': self.G.pos.values,
@@ -41,7 +40,7 @@ class Population:
 
         # matched
         self.matched = snp_match(gwas_path,self.info_snp, match_min_prop=0.0005)
-        threshold = 0.05 / 52000000
+        threshold = 0.000001 # 0.05 / 52000000
         initial_count = self.matched.shape[0]
         self.matched = self.matched[self.matched['p'] < threshold]
         final_count = self.matched.shape[0]
@@ -133,8 +132,8 @@ class Population:
         
         train_idx = list(train_idx)  # Convert to list
         test_idx = list(test_idx)
-        train_idx = random.sample(train_idx, int(len(train_idx) * 0.02))
-        test_idx = random.sample(test_idx, int(len(test_idx) * 0.02))
+        train_idx = random.sample(train_idx, int(len(train_idx) * 0.3))
+        test_idx = random.sample(test_idx, int(len(test_idx) * 0.3))
 
         self.train = sorted(train_idx)
         self.test = sorted(test_idx)
