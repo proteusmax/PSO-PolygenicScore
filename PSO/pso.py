@@ -6,16 +6,13 @@ from joblib import Parallel, delayed, parallel_backend
 
 
 class PSO:
-    def __init__(self, objective_function, population, beta_vector_gwas, p_exploration, config_file = "inputs/param_swarm.cfg"):
-        """
-        p_exploration (float): 1 means taking all the beta_vector, 0 is generating random beta_vector
-        """
+    def __init__(self, objective_function, population, beta_vector_gwas, config_file = "inputs/param_exp.cfg"):
         n_var = beta_vector_gwas.size
         self.beta_vector_gwas = beta_vector_gwas
         self.load_config(config_file)
         self.population = population
         self.objective_function = problems.FunctionFactory.select_function(objective_function, n_var)
-        self.particle_factory = ParticleFactory(self.objective_function, self.population, p_exploration)      
+        self.particle_factory = ParticleFactory(self.objective_function, self.population, self.p_exp)      
         self.swarm = Swarm(self.swarm_size, self.particle_factory, self.beta_vector_gwas)
         self.lbest = Swarm(self.swarm_size, self.particle_factory)
         self.gbest = self.particle_factory.create_particle()
@@ -35,6 +32,20 @@ class PSO:
         self.w = float(config['SwarmSettings']['inertia_factor']) 
         self.Vmax = float(config['SwarmSettings']['Vmax'])
         self.max_generations = int(config['SwarmSettings']['max_generations'])
+        self.p_exp = float(config['SwarmSettings']['p_exp'])
+
+    def get_params(self):
+        swarm_settings = {
+            "ss" : self.swarm_size,
+            "c1" : self.c1,
+            "c2" : self.c2,
+            "w" : self.w,
+            "vm" : self.Vmax,
+            "g" : self.max_generations,
+            "p_exp" : self.p_exp,
+        }
+
+        return swarm_settings 
 
     def pass_next_generation(self):
         best_fitness =  self.gbest.get_objective_value()

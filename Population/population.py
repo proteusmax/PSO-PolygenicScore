@@ -25,7 +25,7 @@ class Population:
     - gwas_path (str): Path to the sumstats TSV file.
     """
 
-    def __init__(self, objective_function, plink_prefix, pheno_path, gwas_path, trait_column='TRAIT'):
+    def __init__(self, objective_function, plink_prefix, pheno_path, gwas_path, trait_column='TRAIT', config_file = "inputs/param_exp.cfg"):
         # genotype
         warnings.filterwarnings("ignore", category=FutureWarning) # Suppress FutureWarnings for read_plink_bin
         self.G = read_plink1_bin(f"{plink_prefix}.bed", f"{plink_prefix}.bim", f"{plink_prefix}.fam", verbose=False)
@@ -40,7 +40,7 @@ class Population:
 
         # matched
         self.matched = snp_match(gwas_path,self.info_snp, match_min_prop=0.0005)
-        threshold = 0.000001 # 0.05 / 52000000
+        threshold = 0.0001 # 0.05 / 52000000
         initial_count = self.matched.shape[0]
         self.matched = self.matched[self.matched['p'] < threshold]
         final_count = self.matched.shape[0]
@@ -56,6 +56,7 @@ class Population:
         self.test = None
 
         # Optimizer
+        self.config_file = config_file
         if isinstance(objective_function, str):
             nvar = self.matched.shape[0]
             self.objective_function = problems.FunctionFactory.select_function(objective_function, nvar = nvar)
@@ -132,8 +133,8 @@ class Population:
         
         train_idx = list(train_idx)  # Convert to list
         test_idx = list(test_idx)
-        train_idx = random.sample(train_idx, int(len(train_idx) * 0.3))
-        test_idx = random.sample(test_idx, int(len(test_idx) * 0.3))
+        #train_idx = random.sample(train_idx, int(len(train_idx) * 0.3))
+        #test_idx = random.sample(test_idx, int(len(test_idx) * 0.3))
 
         self.train = sorted(train_idx)
         self.test = sorted(test_idx)
@@ -152,9 +153,12 @@ class Population:
 
         return loss
 
+    def get_params(self):
+        swarm_settings = self.optimizer.get_params()
+        return "_".join([f"{key}:{value}" for key, value in swarm_settings.items()])
     
-    def optimize_weights(self, p_exploration=0.5):
-        self.optimizer = PSO(self.objective_function.get_name(), population=self, beta_vector_gwas=self.matched['beta'], p_exploration=p_exploration)
+    def optimize_weights(self):
+        self.optimizer = PSO(self.objective_function.get_name(), population=self, beta_vector_gwas=self.matched['beta'], config_file = self.config_file)
         self.optimizer.run()
 
     def get_optimized_weights(self):
@@ -205,11 +209,30 @@ class Population:
         plt.ylabel('True Positive Rate')
         plt.title(title)
         plt.legend(loc='lower right')
-        fig_path = f'pso_{title.replace(" ", "_")}.png'
+        params = self.get_params()
+        fig_path = f'results/pso_{params}_{title.replace(" ", "_")}.png'
         plt.savefig(fig_path, format='png')
         print(f"Figured saved in {fig_path}")
         plt.close()
 
+    def plot_convergence(self):
+        generation_statistics = self.optimizer.get_population_statistics()
+        generations = list(generation_statistics.keys())
+        fitness_values = [gen_stat["best_fitness"] for gen_stat in generation_statistics.values()]
+
+        # Creating the convergence plot
+        plt.figure(figsize=(8, 5))
+        plt.plot(generations, fitness_values, marker='o')
+        plt.title("Convergence Plot")
+        plt.xlabel("Generation")
+        plt.ylabel("Best Fitness")
+        plt.grid(True)
+        params = self.get_params()        
+        fig_path = f'results/pso_{params}_convergence_plots.png'
+        plt.savefig(fig_path, format='png')
+        print(f"Figured saved in {fig_path}")
+        plt.close()
+     
     def run_experiment(self):
         if 'CASE' in self.P[self.trait_column].values and 'CONTROL' in self.P[self.trait_column].values:
             self.P[self.trait_column] = self.P[self.trait_column].replace({'CASE': 1, 'CONTROL': 0})
@@ -223,3 +246,4 @@ class Population:
         print("Weights optimized successfully")
         self.return_auc(self.train, title = "ROC curve training")
         self.return_auc(self.test, title = "ROC curve testing")
+        self.plot_convergence()

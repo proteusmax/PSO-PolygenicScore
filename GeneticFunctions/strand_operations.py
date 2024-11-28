@@ -73,7 +73,7 @@ def snp_match(sumstats, info_snp, strand_flip=True, join_by_pos=True, remove_dup
 
     # Handle strand flipping in parallel
     if strand_flip:
-        ambiguous_snps = sumstats[['a0', 'a1']].apply(lambda x: " ".join(x) in ["A T", "T A", "C G", "G C"], axis=1)
+        ambiguous_snps = sumstats[['a0', 'a1']].apply(lambda x: " ".join(map(str, x)) in ["A T", "T A", "C G", "G C"], axis=1)
         print(f"{ambiguous_snps.sum():,} ambiguous SNPs have been removed.")
         
         sumstats2 = sumstats[~ambiguous_snps].copy()

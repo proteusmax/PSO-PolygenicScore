@@ -68,8 +68,9 @@ class Particle:
             xmax = self.__obj_func_singleton.get_xmax()
             
             mask = da.random.random(self.nvar, chunks='auto') < self.p_exploration
-            random_values = xmin + da.random.random(self.nvar, chunks='auto') * (xmax - xmin)
-            self.x = da.where(mask, beta_vector_gwas, random_values)
+            random_scaling_factors = da.random.random(beta_vector_gwas.shape, chunks='auto')
+            scaled_beta_vector = beta_vector_gwas * random_scaling_factors            
+            self.x = da.where(mask, scaled_beta_vector, beta_vector_gwas)
             self.objective_value = self.evaluate_objective_function()
             
         else:

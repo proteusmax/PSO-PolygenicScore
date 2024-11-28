@@ -33,7 +33,7 @@ def load_data_for_snp_match(sumstats_path):
         column_mapping = json.load(f)
     rename_dict = map_columns(sumstats, column_mapping)
     sumstats.rename(columns=rename_dict, inplace=True)
-    
+
     return sumstats
 
 def filter_standard_chromosomes(df, chr_column='chr'):
@@ -61,4 +61,5 @@ def filter_standard_chromosomes(df, chr_column='chr'):
     return filtered_df
 
 def sigmoid(z):
+    z = np.clip(z, -500, 500)
     return 1 / (1 + np.exp(-z))
