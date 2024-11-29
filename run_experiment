@@ -6,8 +6,8 @@ from PSO import *
 from pandas_plink import read_plink1_bin
 import pandas as pd
 
-if len(sys.argv) != 7:
-    print("Usage: python create_population.py <plink_prefix> <pheno_file> <sumstat_file> <trait_column> <config_file> <optimizer>")
+if len(sys.argv) not in [7,8]:
+    print("Usage: python create_population.py <plink_prefix> <pheno_file> <sumstat_file> <trait_column> <config_file> <optimizer> [<iter>]")
     sys.exit(1)
 
 objective_function = "BinaryClassification"  # Hardcoded as specified
@@ -17,9 +17,10 @@ sumstat_file = sys.argv[3]
 trait_column = sys.argv[4]
 config_file = sys.argv[5]
 optimizer = sys.argv[6]
+iter_param = int(sys.argv[7]) if len(sys.argv) == 8 else 1
 
-HTGSM = Population(objective_function, prefix, pheno_file, sumstat_file, trait_column, optimizer)
+HTGSM = Population(objective_function, prefix, pheno_file, sumstat_file, trait_column, config_file, optimizer)
 
 print("Population instance created successfully!")
 
-HTGSM.run_experiment()
+HTGSM.run_times(iter_param)

@@ -45,7 +45,7 @@ def snp_match(sumstats, info_snp, strand_flip=True, join_by_pos=True, remove_dup
                   or If required columns are missing, or if matching SNPs does not meet the minimum proportion.
     """
     n_jobs = os.cpu_count() - 1
-    print(f"Using {n_jobs} CPUs")
+    print(f'Using {n_jobs} CPUs')
     
     sumstats = load_data_for_snp_match(sumstats)
 

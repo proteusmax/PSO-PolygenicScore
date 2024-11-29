@@ -66,6 +66,12 @@ def filter_standard_chromosomes(df, chr_column='chr'):
     
     return filtered_df
 
+
 def sigmoid(z):
-    z = np.clip(z, -500, 500)
-    return 1 / (1 + np.exp(-z))
+    # Numerically stable sigmoid
+    z = np.clip(z, -500, 500)  # Ensure clipping
+    result = np.zeros_like(z, dtype=np.float32)
+    # Handle positive and negative values separately
+    result[z >= 0] = 1 / (1 + np.exp(-z[z >= 0]))
+    result[z < 0] = np.exp(z[z < 0]) / (1 + np.exp(z[z < 0]))
+    return result

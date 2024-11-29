@@ -20,6 +20,30 @@ from pymoo.core.sampling import Sampling
 from concurrent.futures import ThreadPoolExecutor
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 
+class CustomPSO(PSO):
+    def __init__(self, pop_size, w, c1, c2, sampling, vmax=None, **kwargs):
+        super().__init__(pop_size=pop_size, w=w, c1=c1, c2=c2, sampling=sampling, **kwargs)
+        self.vmax = vmax  # Add vmax parameter
+
+    def _step(self, problem, pop, velocity, personal_best, global_best, **kwargs):
+        # Standard PSO velocity update
+        r1 = np.random.random(velocity.shape)
+        r2 = np.random.random(velocity.shape)
+
+        velocity = (
+            self.w * velocity
+            + self.c1 * r1 * (personal_best - pop)
+            + self.c2 * r2 * (global_best - pop)
+        )
+
+        # Clamp the velocities to [-vmax, vmax]
+        if self.vmax is not None:
+            velocity = np.clip(velocity, -self.vmax, self.vmax)
+
+        # Update the population
+        pop += velocity
+
+        return velocity, pop
 
 class Population:
     """
@@ -70,6 +94,9 @@ class Population:
         else:
             raise ValueError("objective_function should be a string whose name is defined in Problems/problems.py")
         self.optimizer = optimizer
+        self.iter_res_train = {}
+        self.iter_res_test = {}
+        self.iter_res_valid = {}
 
     def prepare_data(self, drop_other_phenos = True):
         """
@@ -116,7 +143,7 @@ class Population:
         return np.asarray(PGS_vector, dtype=np.float32)
 
         
-    def train_test_split(self, train_size=0.7, random_state=123):
+    def train_test_split(self, train_size=0.7, valid_size=0.15):
         """
         Splits the data into training and testing sets, balancing for SEX, AGE, and TRAIT
         and returns the indices of the individuals in each set.
@@ -136,15 +163,25 @@ class Population:
 
         stratify_labels = pd.Series(["_".join(map(str, vals)) for vals in zip(*stratify_columns)], index=self.X.index)
 
-        sss = StratifiedShuffleSplit(n_splits=1, train_size=train_size, random_state=random_state)
-        train_idx, test_idx = next(sss.split(self.X, stratify_labels))
+        test_size = 1 - train_size
+        sss = StratifiedShuffleSplit(n_splits=1, train_size=train_size)
+        train_idx, temp_idx = next(sss.split(self.X, stratify_labels))
         
+        valid_test_size = 1 - valid_size / test_size
+        temp_stratify_labels = stratify_labels.iloc[temp_idx]
+        sss_valid_test = StratifiedShuffleSplit(n_splits=1, train_size=valid_test_size)
+        valid_idx, test_idx = next(sss_valid_test.split(self.X.iloc[temp_idx], temp_stratify_labels))
+
+        valid_idx = temp_idx[valid_idx]
+        test_idx = temp_idx[test_idx]
+ 
         train_idx = list(train_idx)  # Convert to list
         test_idx = list(test_idx)
         #train_idx = random.sample(train_idx, int(len(train_idx) * 0.3))
         #test_idx = random.sample(test_idx, int(len(test_idx) * 0.3))
 
         self.train = sorted(train_idx)
+        self.valid = sorted(valid_idx)
         self.test = sorted(test_idx)
 
     def evaluate_fitness(self, beta_vector, index=None, binary=True):
@@ -154,24 +191,37 @@ class Population:
 
         if binary:
             PGS_vector = sigmoid(PGS_vector)    
-            epsilon = 1e-10
+            epsilon = 1e-7
             PGS_vector = np.clip(PGS_vector, epsilon, 1 - epsilon)  # Clip predictions to avoid log(0)
 
         loss = self.objective_function.evaluate(y_filtered, PGS_vector)
 
-        return np.float32(loss)
+        regularization_term = self.params["alpha-reg"] * np.sum(np.square(beta_vector))
+        regularization_term = self.params["lambda-reg"] * np.sum(np.abs(beta_vector))
+        loss_with_penalty = loss + regularization_term
+
+        return np.float32(loss_with_penalty)
 
     def get_params(self):
-        return "_".join([f"{key}:{value}" for key, value in self.params()])
+        return "_".join([f"{key}:{str(value).replace('/', '-')}" for key, value in self.params.items()])
 
     def load_config(self):
         """
         Load all parameters dynamically from the configuration file.
         """
+        print(f"Reading config file: {self.config_file}")
+
         config = configparser.ConfigParser()
+    
+        # Verify if the file exists
+        if not os.path.exists(self.config_file):
+            print(f"Error: Config file does not exist at {self.config_file}")
+            return
+
         config.read(self.config_file)
 
-        self.params = {}
+        if not hasattr(self, "params"):
+            self.params = {}
 
         if "Optimizer" in config:
             for key, value in config.items("Optimizer"):
@@ -232,8 +282,8 @@ class Population:
                 # Random mask for augmentation
                 mask_aug = da.random.random(n_var, chunks='auto').astype(np.float32) < self.p_aug
 
-                # Augment by random values between 1 and 1.2
-                random_aug_factors = da.random.uniform(1.0, 1.2, beta_vector_gwas.shape, chunks='auto').astype(np.float32)
+                # Augment by random values between 1 and 1.15
+                random_aug_factors = da.random.uniform(1.0, 1.15, beta_vector_gwas.shape, chunks='auto').astype(np.float32)
                 augmented_beta_vector = scaled_beta_vector * random_aug_factors
 
                 # Combine scaled and augmented vectors based on masks
@@ -305,7 +355,8 @@ class Population:
                 w=self.params["pop_size"],  # Inertia weight
                 c1=self.params["c1"],  # Cognitive parameter
                 c2=self.params["c2"],  # Social parameter
-                sampling=sampling  # Custom sampling
+                sampling=sampling,  # Custom sampling
+                vmax=self.params["vmax"]
             )
         else:
             raise ValueError(f"Unknown optimizer: {self.optimizer}")
@@ -322,7 +373,9 @@ class Population:
         self.best_solution = np.asarray(result.X, dtype=np.float32) 
         self.best_fitness = np.float32(result.F[0])  # Best fitness value
         self.history = result.history
-
+        self.matched["new_beta"] = self.best_solution
+        params = self.get_params()
+        self.matched.to_csv(f"results/{params}_weights.csv", index=False)
         #print("Best solution dtype:", result.X.dtype)  # Should print float32
         #print("Best fitness dtype:", result.F.dtype)
 
@@ -355,7 +408,7 @@ class Population:
                 return np.inf # Return a high loss if the model fails to fit
             
         y_hat = result.predict(X)
-        epsilon = 1e-10
+        epsilon = 1e-7
         y_hat = np.clip(y_hat, epsilon, 1 - epsilon) # Clip predictions to avoid log(0)
 
         fpr, tpr, _ = roc_curve(y_filtered, y_hat)
@@ -371,27 +424,37 @@ class Population:
         plt.title(title)
         plt.legend(loc='lower right')
         params = self.get_params()
-        fig_path = f'results/pso_{params}_{title.replace(" ", "_")}.png'
+        fig_path = f'results/{params}_{title.replace(" ", "_")}.png'
         plt.savefig(fig_path, format='png')
         print(f"Figured saved in {fig_path}")
         plt.close()
+        return auc_score
 
     def plot_convergence(self):
         generations = []
-        fitness_values = []
+        best_fitness_values = []
+        average_fitness_values = []
+        validation_fitness_values = []
 
         for i, entry in enumerate(self.history):
             generations.append(i + 1)
-            fitness_values.append(entry.opt[0].F[0])
+            best_fitness_values.append(entry.opt[0].F[0])
+            average_fitness_values.append(np.mean([ind.F[0] for ind in entry.pop]))
+            best_solution = entry.opt[0].X
+            valid_fitness = self.evaluate_fitness(best_solution, index=self.valid)
+            validation_fitness_values.append(valid_fitness)
     
         plt.figure(figsize=(8, 5))
-        plt.plot(generations, fitness_values, marker='o')
+        plt.plot(generations, best_fitness_values, marker='o', label="Best")
+        plt.plot(generations, average_fitness_values, marker='x', linestyle='--', label="Average")
+        plt.plot(generations, validation_fitness_values, marker='s', linestyle='-.', label="Validation")
         plt.title("Convergence Plot")
         plt.xlabel("Generation")
         plt.ylabel("Binary Classification Loss")
         plt.grid(True)
+        plt.legend(loc='lower left')
         params = self.get_params()        
-        fig_path = f'results/pso_{params}_convergence_plots.png'
+        fig_path = f'results/{params}_convergence_plots.png'
         plt.savefig(fig_path, format='png')
         print(f"Figured saved in {fig_path}")
         plt.close()
@@ -403,12 +466,33 @@ class Population:
         self.prepare_data()
         print("Data prepared successfully")
         self.train_test_split()
-        print(f"Data splited into: {len(self.train)} individuals for training, {len(self.test)} individuals for testing")
+        print(f"Data splited into: {len(self.train)} individuals for training, {len(self.valid)} for validation, {len(self.test)} for testing")
         print("Reading config file...")
         self.load_config()
         print("Optimizing weights...")
         self.optimize_weights()
         print("Weights optimized successfully")
-        self.return_auc(self.train, title = "ROC curve training")
-        self.return_auc(self.test, title = "ROC curve testing")
+        auc_score_train = self.return_auc(self.train, title = "ROC curve training")
+        auc_score_test = self.return_auc(self.test, title = "ROC curve testing")
+        auc_score_valid = self.return_auc(self.valid, title = "ROC curve validation")
+        self.iter_res_test[self.params["iter"]] = auc_score_test
+        self.iter_res_train[self.params["iter"]] = auc_score_train
+        self.iter_res_valid[self.params["iter"]] = auc_score_valid        
         self.plot_convergence()
+
+    def run_times(self, iter):
+        for i in range(iter):
+            print(f"Running iteration {i + 1}/{iter}...")
+            if not hasattr(self, "params"):
+                self.params = {}
+            self.params["iter"] = i
+            self.run_experiment()
+        df_test = pd.DataFrame(list(self.iter_res_test.items()), columns=["Iteration", "AUC_Test"])
+        df_train = pd.DataFrame(list(self.iter_res_train.items()), columns=["Iteration", "AUC_Train"])
+        df_valid = pd.DataFrame(list(self.iter_res_valid.items()), columns=["Iteration", "AUC_Valid"])
+       
+        df_combined = pd.merge(df_test, df_train, on="Iteration")
+        df_combined = pd.merge(df_combined, df_valid, on="Iteration")
+        del self.params["iter"]
+        params = self.get_params()
+        df_combined.to_csv(f"results/{params}_results_sum.csv", index=False)
