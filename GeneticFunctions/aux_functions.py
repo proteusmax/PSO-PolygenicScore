@@ -15,6 +15,12 @@ def map_columns(df, mapping):
                 break  # Stop if we found a match for this target_name
     return rename_dict
 
+def fitness_function(beta_vector, population):
+    """
+    Wrapper for fitness evaluation that calls the Population's evaluate_fitness method.
+    """
+    return population.evaluate_fitness(beta_vector, index=population.train)
+
 def load_data_for_snp_match(sumstats_path):
     """
     Reads the info_snp and sumstats TSV files into Pandas DataFrames

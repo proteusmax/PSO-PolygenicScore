@@ -12,6 +12,13 @@ from statsmodels.tools.sm_exceptions import PerfectSeparationWarning
 import warnings
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, roc_auc_score
+from scipy.optimize import differential_evolution
+import configparser
+from pymoo.algorithms.soo.nonconvex.de import DE
+from pymoo.optimize import minimize
+from pymoo.core.sampling import Sampling
+from concurrent.futures import ThreadPoolExecutor
+from pymoo.algorithms.soo.nonconvex.pso import PSO
 
 
 class Population:
@@ -25,7 +32,7 @@ class Population:
     - gwas_path (str): Path to the sumstats TSV file.
     """
 
-    def __init__(self, objective_function, plink_prefix, pheno_path, gwas_path, trait_column='TRAIT', config_file = "inputs/param_exp.cfg"):
+    def __init__(self, objective_function, plink_prefix, pheno_path, gwas_path, trait_column='TRAIT', config_file = "inputs/param_exp.cfg", optimizer=None):
         # genotype
         warnings.filterwarnings("ignore", category=FutureWarning) # Suppress FutureWarnings for read_plink_bin
         self.G = read_plink1_bin(f"{plink_prefix}.bed", f"{plink_prefix}.bim", f"{plink_prefix}.fam", verbose=False)
@@ -40,7 +47,7 @@ class Population:
 
         # matched
         self.matched = snp_match(gwas_path,self.info_snp, match_min_prop=0.0005)
-        threshold = 0.0001 # 0.05 / 52000000
+        threshold = 0.05 # 0.05 / 52000000
         initial_count = self.matched.shape[0]
         self.matched = self.matched[self.matched['p'] < threshold]
         final_count = self.matched.shape[0]
@@ -62,7 +69,7 @@ class Population:
             self.objective_function = problems.FunctionFactory.select_function(objective_function, nvar = nvar)
         else:
             raise ValueError("objective_function should be a string whose name is defined in Problems/problems.py")
-        self.optimizer = None
+        self.optimizer = optimizer
 
     def prepare_data(self, drop_other_phenos = True):
         """
@@ -98,7 +105,7 @@ class Population:
                          f"but beta vector has {len(beta_vector)} elements.")
         
         data_array = temp_G.data
-        result = da.dot(data_array, beta_vector) if isinstance(data_array, da.Array) else np.dot(data_array, beta_vector)
+        result = da.dot(data_array, beta_vector.astype(np.float32)) if isinstance(data_array, da.Array) else np.dot(data_array, beta_vector.astype(np.float32))
         PGS_vector = result.compute() if isinstance(result, da.Array) else result
 
         if np.isnan(PGS_vector).any() or np.isinf(PGS_vector).any():
@@ -106,7 +113,8 @@ class Population:
             print("beta_vector min:", np.min(beta_vector))
             print("beta_vector max:", np.max(beta_vector))
     
-        return PGS_vector
+        return np.asarray(PGS_vector, dtype=np.float32)
+
         
     def train_test_split(self, train_size=0.7, random_state=123):
         """
@@ -151,24 +159,177 @@ class Population:
 
         loss = self.objective_function.evaluate(y_filtered, PGS_vector)
 
-        return loss
+        return np.float32(loss)
 
     def get_params(self):
-        swarm_settings = self.optimizer.get_params()
-        return "_".join([f"{key}:{value}" for key, value in swarm_settings.items()])
-    
-    def optimize_weights(self):
-        self.optimizer = PSO(self.objective_function.get_name(), population=self, beta_vector_gwas=self.matched['beta'], config_file = self.config_file)
-        self.optimizer.run()
+        return "_".join([f"{key}:{value}" for key, value in self.params()])
 
-    def get_optimized_weights(self):
-        return self.optimizer.gbest.get_x()
-    
+    def load_config(self):
+        """
+        Load all parameters dynamically from the configuration file.
+        """
+        config = configparser.ConfigParser()
+        config.read(self.config_file)
+
+        self.params = {}
+
+        if "Optimizer" in config:
+            for key, value in config.items("Optimizer"):
+                try:
+                    # Try to infer the type (int, float, or leave as string)
+                    if value.isdigit():
+                        self.params[key] = int(value)
+                    else:
+                        self.params[key] = float(value) if "." in value else value
+                except ValueError:
+                    self.params[key] = value 
+            print(f"Loaded optimizer parameters: {self.params}")
+        else:
+            print("No [Optimizer] section found in the configuration file.")
+            
+
+    def optimize_weights(self):
+        """
+        Use PyMoo's Differential Evolution (DE) to optimize the beta vector within the Population class.
+        """
+        class CustomSampling(Sampling):
+            def __init__(self, population):
+                """
+                Custom sampling logic with probabilities for shrinkage and augmentation.
+
+                Parameters:
+                - population: Reference to the parent Population instance.
+                """
+                super().__init__()
+                self.population = population
+                # Retrieve p_shrinkage and p_aug from population's params
+                self.p_shrinkage = population.params["p_shrinkage"]
+                self.p_aug = population.params["p_aug"]
+
+            def _generate_individual(self, n_var, xmin, xmax):
+                """
+                Generate a single individual with shrinkage and augmentation logic.
+
+                Parameters:
+                - n_var: Number of variables (dimensionality of the problem).
+                - xmin: Lower bounds for the variables.
+                - xmax: Upper bounds for the variables.
+
+                Returns:
+                - individual: A generated individual as a numpy array.
+                """
+                beta_vector_gwas = self.population.matched['beta'].values.astype(np.float32)
+
+                # Random mask for shrinkage
+                mask_shrinkage = da.random.random(n_var, chunks='auto').astype(np.float32) < self.p_shrinkage
+
+                # Random scaling factors for shrinkage
+                random_scaling_factors = da.random.random(beta_vector_gwas.shape, chunks='auto').astype(np.float32)
+
+                # Apply shrinkage (scaled beta vector)
+                scaled_beta_vector = beta_vector_gwas * random_scaling_factors
+
+                # Random mask for augmentation
+                mask_aug = da.random.random(n_var, chunks='auto').astype(np.float32) < self.p_aug
+
+                # Augment by random values between 1 and 1.2
+                random_aug_factors = da.random.uniform(1.0, 1.2, beta_vector_gwas.shape, chunks='auto').astype(np.float32)
+                augmented_beta_vector = scaled_beta_vector * random_aug_factors
+
+                # Combine scaled and augmented vectors based on masks
+                individual = da.where(mask_aug, augmented_beta_vector, scaled_beta_vector)
+                individual = da.where(mask_shrinkage, individual, beta_vector_gwas)
+
+                individual = np.clip(individual.compute().astype(np.float32), xmin, xmax)
+
+                return individual
+
+            def _do(self, problem, n_samples, **kwargs):
+                """
+                Generate the initial population for the problem.
+
+                Parameters:
+                - problem: The PyMoo problem instance.
+                - n_samples: Number of samples (population size).
+
+                Returns:
+                - Initial population (numpy array).
+                """
+                n_var = problem.n_var
+                xmin = problem.xl  # Lower bounds
+                xmax = problem.xu  # Upper bounds
+
+                # Use multithreading to generate the population
+                with ThreadPoolExecutor() as executor:
+                    population = list(
+                        executor.map(lambda _: self._generate_individual(n_var, xmin, xmax), range(n_samples))
+                    )
+
+                return np.array(population, dtype=np.float32)
+        
+        class CustomProblem(Problem):
+            def __init__(self, population):
+                # Initialize the problem with number of variables and bounds
+                super().__init__(
+                    n_var=population.matched.shape[0],  # Number of variables
+                    n_obj=1,  # Single-objective optimization
+                    n_constr=0,  # No constraints
+                    xl=np.float32(-1.0),  # Lower bounds for variables
+                    xu=np.float32(1.0)   # Upper bounds for variables
+                )
+                self.population = population  # Store reference to the Population instance
+
+            def _evaluate(self, x, out, *args, **kwargs):
+                # Evaluate fitness for each individual
+                x = np.asarray(x, dtype=np.float32)
+                fitness_values = [
+                    self.population.evaluate_fitness(beta_vector, index=self.population.train)
+                    for beta_vector in x
+                ]
+                out["F"] = np.array(fitness_values, dtype=np.float32)  # Store results as float32
+
+        problem = CustomProblem(self)
+        sampling = CustomSampling(self)
+        
+        if self.optimizer == "DE":
+            algorithm = DE(
+                pop_size=self.params["pop_size"],  # Population size
+                sampling=sampling,  # Random initialization
+                variant=self.params["variant"],  # DE strategy
+                CR=self.params["cr"],  # Crossover probability
+                F=self.params["f"],   # Differential mutation factor
+            )
+        elif self.optimizer == "PSO":
+            algorithm = PSO(
+                pop_size=self.params["pop_size"],  # Population size
+                w=self.params["pop_size"],  # Inertia weight
+                c1=self.params["c1"],  # Cognitive parameter
+                c2=self.params["c2"],  # Social parameter
+                sampling=sampling  # Custom sampling
+            )
+        else:
+            raise ValueError(f"Unknown optimizer: {self.optimizer}")
+
+        result = minimize(
+            problem,
+            algorithm,
+            termination=("n_gen", self.params["maxiter"]), 
+            verbose=True, 
+            n_jobs=-1, 
+            save_history=True
+        )
+
+        self.best_solution = np.asarray(result.X, dtype=np.float32) 
+        self.best_fitness = np.float32(result.F[0])  # Best fitness value
+        self.history = result.history
+
+        #print("Best solution dtype:", result.X.dtype)  # Should print float32
+        #print("Best fitness dtype:", result.F.dtype)
+
     def return_auc(self, index=None, binary=True, adjusted=True, title='ROC Curve'):
         """Calculate the loss function using the beta_vector from a given particle"""
 
-        best_beta_vector = self.get_optimized_weights()
-        PGS_vector = self.calculate_pgs(best_beta_vector, index)
+        PGS_vector = self.calculate_pgs(self.best_solution, index)
         y_filtered = self.y.iloc[index] if index is not None else self.y
 
         if adjusted:
@@ -216,16 +377,18 @@ class Population:
         plt.close()
 
     def plot_convergence(self):
-        generation_statistics = self.optimizer.get_population_statistics()
-        generations = list(generation_statistics.keys())
-        fitness_values = [gen_stat["best_fitness"] for gen_stat in generation_statistics.values()]
+        generations = []
+        fitness_values = []
 
-        # Creating the convergence plot
+        for i, entry in enumerate(self.history):
+            generations.append(i + 1)
+            fitness_values.append(entry.opt[0].F[0])
+    
         plt.figure(figsize=(8, 5))
         plt.plot(generations, fitness_values, marker='o')
         plt.title("Convergence Plot")
         plt.xlabel("Generation")
-        plt.ylabel("Best Fitness")
+        plt.ylabel("Binary Classification Loss")
         plt.grid(True)
         params = self.get_params()        
         fig_path = f'results/pso_{params}_convergence_plots.png'
@@ -241,6 +404,8 @@ class Population:
         print("Data prepared successfully")
         self.train_test_split()
         print(f"Data splited into: {len(self.train)} individuals for training, {len(self.test)} individuals for testing")
+        print("Reading config file...")
+        self.load_config()
         print("Optimizing weights...")
         self.optimize_weights()
         print("Weights optimized successfully")

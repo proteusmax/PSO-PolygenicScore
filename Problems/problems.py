@@ -1,4 +1,5 @@
 import numpy as np
+from pymoo.core.problem import Problem
 
 from abc import ABCMeta, abstractmethod
 class ObjectiveFunction(metaclass=ABCMeta):
@@ -112,6 +113,25 @@ class BinaryClassification(ObjectiveFunction):
     
     def get_name(self):
         return BinaryClassification.__name__
+
+
+class BinaryClassificationPymoo(Problem):
+    def __init__(self, population):
+        # Define the number of variables, objectives, and bounds
+        super().__init__(
+            n_var=population.matched.shape[0],  # Number of variables
+            n_obj=1,  # Single-objective optimization
+            n_constr=0,  # No constraints
+            xl=-1.0,  # Lower bounds for variables
+            xu=1.0   # Upper bounds for variables
+        )
+        self.population = population
+
+    def _evaluate(self, x, out, *args, **kwargs):
+        # x is a 2D array where each row is an individual
+        # out["F"] should store the fitness values (minimization problem)
+        fitness_values = [self.population.evaluate_fitness(beta_vector, index=self.population.train) for beta_vector in x]
+        out["F"] = np.array(fitness_values, dtype=np.float32)  # Store as float32
 
 class FunctionFactory:
     function_dictionary = {
