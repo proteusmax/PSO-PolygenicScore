@@ -2,7 +2,6 @@ import sys
 from GeneticFunctions import *
 from Problems import *
 from Population import*
-from PSO import *
 from pandas_plink import read_plink1_bin
 import pandas as pd
 

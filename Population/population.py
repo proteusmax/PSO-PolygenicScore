@@ -6,7 +6,6 @@ from GeneticFunctions import *
 import dask.array as da
 from sklearn.model_selection import StratifiedShuffleSplit
 from Problems import *
-from PSO import *
 import statsmodels.api as sm
 from statsmodels.tools.sm_exceptions import PerfectSeparationWarning
 import warnings
@@ -203,7 +202,7 @@ class Population:
         return np.float32(loss_with_penalty)
 
     def get_params(self):
-        return "_".join([f"{key}:{str(value).replace('/', '-')}" for key, value in self.params.items()])
+        return "_".join([f"{key}.{str(value).replace('/', '-')}" for key, value in self.params.items()])
 
     def load_config(self):
         """
