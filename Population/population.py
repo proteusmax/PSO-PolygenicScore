@@ -11,7 +11,6 @@ from statsmodels.tools.sm_exceptions import PerfectSeparationWarning
 import warnings
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, roc_auc_score
-from scipy.optimize import differential_evolution
 import configparser
 from pymoo.algorithms.soo.nonconvex.de import DE
 from pymoo.optimize import minimize
